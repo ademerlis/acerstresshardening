@@ -1,0 +1,381 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+#loading packages
+```{r, include = F}
+library(rstatix) #pipe-friendly statistics functions
+library(ggpubr) #easily publication ready plots
+library(plotrix)#for standard error of the mean function
+library(tidyverse) #includes dplyr, ggplot, readr, tidyr, etc
+library(ggsignif) #can plot significance values on graphs
+library(graphics)
+```
+
+#Loading metadata files
+```{r}
+colorscore_metadata <- read.csv("../colorscore_metadata.csv") #Supplemental Table 2, "metadata" sheet
+pam <- read.csv("../pam.csv") #Supplemental Table 2, "PAM" sheet
+Rintensity <- read.csv("../Rintensity_data.csv") #Supplemental Table 2, "R-intensity" sheet
+```
+
+# Experiment Timeline
+
+**Coral collections and fragmentation**: February 6-8, 2019
+**Field control heat-stress assay**: March 15, 2019 - April 10, 2019
+**Stress-hardening temperature treatment (laboratory control vs. variable)**: March 21, 2019 - June 17, 2019
+**2nd Heat-stress assay**: June 17, 2019 - July 9, 2019
+
+# Sample Sizes
+```{r}
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, Genotype) %>% 
+  distinct() %>% 
+  group_by(Treatment, Genotype) %>% 
+  dplyr::mutate(samplesize = n()) %>% 
+  distinct(samplesize) %>%
+  arrange(Treatment)
+
+#sample size of field control
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, Genotype) %>% 
+  distinct() %>% 
+  filter(Treatment =="Field control") %>% 
+  group_by(Treatment) %>% 
+  dplyr::mutate(samplesize = n()) #46 fragments 
+
+#number used in stress hardening
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, Genotype, reasonPulled) %>% 
+  distinct() %>% 
+  filter(!Treatment =="Field control") %>% 
+  group_by(Treatment) %>% 
+  dplyr::mutate(samplesize = n()) #82 fragments
+#39 variable, 43 laboratory control
+```
+
+# Heat-stress assay Figures
+```{r}
+heatstressassays <- read_csv("../heatstressassays.csv") #Supplemental Table 1, "Raw Heat-Stress Assay Log" sheet
+heatstressassays$Date<- lubridate::mdy(heatstressassays$Date)
+
+heatstressassays %>% 
+  filter(Date <= "2019-04-10") %>% 
+  filter(Date >= "2019-03-15") %>% 
+  group_by(Date, Time) %>% 
+  summarise(mean = mean(Temp), sd = sd(Temp)) %>% 
+  ggplot(data = .,
+       aes(x = Date, y = mean)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.2) +
+  theme_classic() +
+  labs(title = "Field control heat-stress assay",
+       y = "Temperature (°C)",
+       x = "Date")
+
+heatstressassays %>% 
+  filter(!Experiment =="Field") %>% 
+  group_by(Date, Time) %>% 
+  summarise(mean = mean(Temp), sd = sd(Temp)) %>% 
+  ggplot(data = .,
+       aes(x = Date, y = mean)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.2) +
+  theme_classic() +
+  labs(title = "Laboratory control/variable heat-stress assay",
+       y = "Temperature (°C)",
+       x = "Date")
+```
+#temperature treatment figure
+```{r}
+temptreatment <- read_csv("../temptreatment.csv")
+
+temptreatment %>% 
+group_by(Time, Treatment) %>% 
+  summarise(avg_temp = mean(Temp), sd = sd(Temp)) %>% 
+  ggplot(., aes(x=Time, y=avg_temp, color = Treatment)) + 
+  theme_classic() +
+  geom_ribbon(aes(fill=Treatment, group = Treatment, ymin = avg_temp - sd, ymax = avg_temp + sd), alpha = 0.2) +
+   geom_line(aes(group = Treatment)) +
+  labs(y="Temperature (C)")
+```
+
+#health of corals going into heat-stress assay
+```{r}
+colorscore_metadata$colorscoredate <- lubridate::mdy(colorscore_metadata$colorscoredate)
+colorscore_metadata  %>% 
+  filter(colorscoredate == "2019-03-18" | colorscoredate == "2019-06-17") %>% 
+  group_by(Treatment, Genotype) %>% 
+  summarise(avg_score = mean(Score), sd_score = sd(Score), n = n())
+
+colorscore_metadata  %>% 
+  filter(colorscoredate == "2019-03-18" | colorscoredate == "2019-06-17") %>% 
+  group_by(Treatment) %>% 
+  summarise(avg_score = mean(Score), sd_score = sd(Score), n = n())
+```
+#difference in number of days among treatment groups 
+```{r}
+colorscore_metadata %>% 
+  group_by(Treatment) %>%
+  summarise(averagedays = mean(daysUntilPulled), sd = sd(daysUntilPulled)) %>%
+  ggplot(., aes(x = Treatment, y = averagedays, fill = Treatment)) + 
+  geom_bar(stat="identity", position = position_dodge()) + 
+  geom_errorbar(aes(ymin = averagedays - sd, ymax = averagedays + sd), width =
+                  .2, position=position_dodge(.9)) +
+  theme_classic() +
+  scale_fill_manual(values = c("#60DBDB","#00E281",  "#F54A34"))
+```
+
+#each genotype number of days until bleaching or RTL
+```{r}
+colorscore_metadata %>% 
+  group_by(Genotype, Treatment) %>%
+  summarise(averagedays = mean(daysUntilPulled), sd = sd(daysUntilPulled)) %>%
+  ggplot(., aes(x = Genotype, y = averagedays, fill = Treatment)) + 
+  geom_bar(stat="identity", position = position_dodge()) + 
+  geom_errorbar(aes(ymin = averagedays - sd, ymax = averagedays + sd), width =
+                  .2, position=position_dodge(.9)) +
+  theme_classic() +
+  scale_fill_manual(values = c("#60DBDB","#00E281",  "#F54A34"))
+ggsave("genotypes_sd.pdf")
+
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, Genotype, reasonPulled) %>% 
+  distinct() %>% 
+  group_by(Genotype, Treatment, reasonPulled) %>% 
+  dplyr::mutate(count = n()) %>%
+  distinct(count) %>% 
+  ggplot(., aes(x=Treatment, y=count, fill = reasonPulled)) +
+  geom_bar(stat="identity", color = "black") + 
+  facet_wrap(~ Genotype) + theme_classic() + 
+  labs(fill = "Reason Pulled", x = "Treatment", y = "Number of Corals") +
+  scale_fill_manual(labels=c("Bleached", "Tissue Loss"), values = c("white", "brown")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Two-Way ANOVA for genotype and treatment
+```{r}
+colorscore_metadata %>% 
+  select(Puck.ID:daysUntilPulled) %>% 
+  distinct() %>% 
+  aov(daysUntilPulled ~ Genotype + Treatment + Genotype*Treatment, data = .) -> anova_two_way
+
+plot(anova_two_way)
+
+summary(anova_two_way)
+TukeyHSD(anova_two_way) -> tukey_anova_genotreatment
+
+as.data.frame(tukey_anova_genotreatment$OriginalTreatment) %>% 
+  write.csv("tukey_anova_genotreatment.csv",  row.names = T)
+
+plot(TukeyHSD(anova_two_way))
+
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, daysUntilPulled, Genotype) %>% 
+  distinct() %>% 
+    rstatix::levene_test(daysUntilPulled ~ Genotype) #not significant so variance is good 
+  
+shapiro_test(anova_two_way$residuals) #not significant, so data is normal
+```
+
+
+#grouping by reef site (North, Mid, South)
+```{r}
+colorscore_metadata %>% 
+  mutate(ecoregion = case_when(Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  dplyr::select(Puck.ID, Treatment, daysUntilPulled, ecoregion, Genotype) %>% 
+  group_by(ecoregion, Treatment) %>% 
+dplyr::summarise(averagedays = mean(daysUntilPulled), sd = sd(daysUntilPulled)) %>%
+  ggplot(., aes(x = factor(ecoregion, levels = c("North", "Mid", "South")), y = averagedays, fill = Treatment)) + 
+  geom_bar(stat="identity", position = position_dodge()) + 
+  geom_errorbar(aes(ymin = averagedays - sd, ymax = averagedays + sd), width =
+                  .2, position=position_dodge(.9)) +
+  theme_classic() +
+  scale_fill_manual(values = c("#60DBDB","#00E281",  "#F54A34"))
+
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, Genotype, reasonPulled) %>% 
+  distinct() %>% 
+  mutate(ecoregion = case_when(Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  dplyr::group_by(ecoregion, Treatment, reasonPulled) %>% 
+  dplyr::mutate(count = n()) %>% 
+  distinct(count) %>% 
+  ggplot(., aes(x=ecoregion, y=count, fill = reasonPulled)) +
+  geom_bar(stat="identity", color = "black") + 
+  facet_wrap(~ Treatment) + theme_classic() + 
+  labs(fill = "Reason Pulled", x = "Treatment", y = "Number of Corals") +
+  scale_fill_manual(labels=c("Bleached", "Tissue Loss"), values = c("white", "brown")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Two-Way ANOVA for original reef and treatment
+```{r}
+colorscore_metadata %>% 
+  mutate(ecoregion = case_when(Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  dplyr::select(Puck.ID, Treatment, daysUntilPulled, ecoregion) %>% 
+  distinct() %>% 
+  aov(daysUntilPulled ~ ecoregion + Treatment + ecoregion*Treatment, data = .) -> region_anova
+  
+summary(region_anova)
+  
+colorscore_metadata %>% 
+  mutate(ecoregion = case_when(Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  dplyr::select(Puck.ID, Treatment, daysUntilPulled, ecoregion) %>%
+  distinct() %>% 
+    rstatix::levene_test(daysUntilPulled ~ ecoregion) #not significant so variance is good 
+
+shapiro_test(region_anova$residuals) #not significant, so data is normal
+```
+
+# Chi-squared contingency tables
+```{r}
+#comparison of treatment groups
+colorscore_metadata  %>% 
+  dplyr::select(Puck.ID:reasonPulled) %>% 
+  distinct() %>% 
+  dplyr::group_by(Treatment, reasonPulled) %>% 
+  dplyr::summarise(count = n()) %>% 
+  pivot_wider(names_from = reasonPulled, values_from = count) %>% 
+  column_to_rownames(., var = "Treatment") -> contingencytable
+
+chisq_test(contingencytable, correct = F) #correct = F gets rid of Yate's contingency correction
+
+colorscore_metadata %>% 
+  select(Puck.ID, Treatment, reasonPulled) %>% 
+  distinct() %>% 
+  mosaicplot(~ Treatment + reasonPulled, data = ., color = 8:9)
+```
+
+```{r}
+#all treatment groups condensed
+colorscore_metadata  %>% 
+  mutate(ecoregion = case_when(Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  select(Puck.ID, Treatment, reasonPulled, ecoregion) %>% 
+  distinct() %>% 
+  group_by(ecoregion, reasonPulled) %>% 
+  dplyr::summarise(count = n()) %>% 
+  pivot_wider(names_from = reasonPulled, values_from = count) %>% 
+  column_to_rownames(., var = "ecoregion") -> contingencytable_alltreatments_ecoregion
+
+chisq_test(contingencytable_alltreatments_ecoregion, correct = F) 
+
+#mosaic plot
+colorscore_metadata %>% 
+  mutate(ecoregion = case_when(Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  mutate(reorder_levels(., ecoregion, c("North", "Mid", "South"))) %>% 
+  select(Puck.ID, Treatment, reasonPulled, ecoregion) %>% 
+  distinct() %>% 
+  mosaicplot(~ ecoregion + reasonPulled, data = ., color = 8:9)
+
+```
+
+```{r}
+#comparison of original reef site (using laboratory control and variable groups)
+
+colorscore_metadata  %>% 
+  filter(!Treatment == "Field control") %>% 
+  mutate(ecoregion = case_when(Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  select(Puck.ID, Treatment, reasonPulled, ecoregion) %>% 
+  distinct() %>% 
+  group_by(ecoregion, reasonPulled) %>% 
+  dplyr::summarise(count = n()) %>% 
+  pivot_wider(names_from = reasonPulled, values_from = count) %>% 
+  column_to_rownames(., var = "ecoregion") -> contingencytable_ecoregion
+
+chisq_test(contingencytable_ecoregion, correct = F) 
+
+#mosaic plot
+colorscore_metadata %>% 
+  filter(!Treatment == "Field control") %>% 
+  mutate(ecoregion = case_when(Genotype == "Mid A" | Genotype == "Mid B" ~ "Mid",
+                               Genotype == "North A" | Genotype == "North B" ~ "North",
+                               Genotype == "South A" | Genotype == "South B" ~ "South")) %>% 
+  mutate(reorder_levels(., ecoregion, c("North", "Mid", "South"))) %>% 
+  select(Puck.ID, Treatment, reasonPulled, ecoregion) %>% 
+  distinct() %>% 
+  mosaicplot(~ ecoregion + reasonPulled, data = ., color = 8:9)
+```
+
+
+#PAM Analysis
+```{r}
+
+pam$pam_date <- lubridate::ymd(pam$pam_date)
+pam %>% 
+  filter(!OriginalTreatment=="Field") %>% 
+  group_by(OriginalTreatment, pam_date) %>% 
+  mutate(mean_fvfm = mean(pam_fvfm),sd_fvfm = sd(pam_fvfm)) %>% 
+  ggplot(.,
+       aes(
+         x = pam_date,
+         y = mean_fvfm,
+         color = OriginalTreatment
+       )) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_fvfm - sd_fvfm, ymax = mean_fvfm + sd_fvfm)) +
+  labs(x = "Date",
+       y = "fv/fm",
+       color = "Original Treatment") +
+  theme(text = element_text(size = 13)) +
+ scale_color_manual(labels=c("Laboratory control", "Variable"), values = c( "#60DBDB", "#F54A34"))+  #"Field" = "#00E281"
+ scale_x_date(date_labels = "%d %b", date_breaks = "2 week") +
+  theme_classic()
+
+
+pam %>% 
+  filter(OriginalTreatment=="Field") %>% 
+  group_by(OriginalTreatment, pam_date) %>% 
+  mutate(mean_fvfm = mean(pam_fvfm),sd_fvfm = sd(pam_fvfm)) %>% 
+  ggplot(.,
+       aes(
+         x = pam_date,
+         y = mean_fvfm,
+         color = OriginalTreatment
+       )) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_fvfm - sd_fvfm, ymax = mean_fvfm + sd_fvfm)) +
+  labs(x = "Date",
+       y = "fv/fm",
+       color = "Original Treatment") +
+  theme(text = element_text(size = 13)) +
+ scale_color_manual(labels=c("Field control"), values = c( "#00E281"))+  #"Field" = "#00E281"
+ scale_x_date(date_labels = "%d %b", date_breaks = "2 week") +
+  theme_classic()
+```
+
+R intensity
+```{r}
+Rintensity$Date <- lubridate::mdy(Rintensity$Date)
+
+Rintensity %>%
+  filter(Date <= "2019-07-10") %>% 
+  group_by(Date, Treatment) %>%
+  dplyr::summarise(average = mean(Average.R.Intensity), sd = sd(Average.R.Intensity)) %>% 
+  ggplot(., aes(x=Date, y=average, color=Treatment)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = average - sd, ymax = average + sd), width = 0.5) +
+  theme_classic() +
+  theme(text = element_text(size = 13)) +
+  scale_color_manual(labels=c("Laboratory control", "Variable"), values = c("#60DBDB", "#F54A34")) +
+  labs(y="R Intensity") +
+  scale_y_reverse()
+ggsave("rintensity.pdf")
+```
+
